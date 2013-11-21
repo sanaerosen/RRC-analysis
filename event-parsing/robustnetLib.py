@@ -1,6 +1,19 @@
 #!/usr/bin/python
 import math
 
+def mergeDict(new_attributes, attribute_dict, event, are_lists=False):
+    for k, v in new_attributes.iteritems():
+        if k not in attribute_dict[event]:
+            attribute_dict[event][k] = []
+        try:
+            v = int(v)
+        except:
+            pass
+        if not are_lists:
+	        attribute_dict[event][k].append(v)
+	else:
+		attribute_dict[event][k].extend(v)
+
 def meanValue(li):
     """author: Haokun """
     if not li:

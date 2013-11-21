@@ -78,7 +78,7 @@ class Event:
 				Event.current_event.event = "PACKET_SENT"
 			else:
 				Event.current_event.event = "PACKET_RCV"
-			packet.printme_simple()
+			#packet.printme_simple()
 			assert(Event.current_event.time != None)
 			if Event.current_event.time in Event.all_events:
 				Event.all_events[Event.current_event.time].append(Event.current_event)
@@ -201,6 +201,8 @@ class Event:
 				if state in line:
 					self.after_state = state
 					break
+			if Event.last_state == self.after_state:
+				return
 			self.before_state = Event.last_state
 			Event.last_state = self.after_state
 		if self.event == "EVENT_WCDMA_RRC_STATE" and line.startswith("Payload String = Previous state:"):
@@ -263,11 +265,14 @@ class Transition():
 		self.time_to_reach_last = self.__create_dict(False)
 		self.attributes_first = self.__create_dict(False, d=True)
 		self.attributes_last = self.__create_dict(False, d=True)
+		self.attributes_all = self.__create_dict(False, d=True)
 		self.duplicates_first = self.__create_dict(False)
 		self.duplicates_last = self.__create_dict(False)
+		self.duplicates_all = self.__create_dict(False)
 		interferers = {}	
 
 	def update(self, event):
+		#print event.before_state, event.after_state, event.event
 		if event.after_state != self.state and not event.event.startswith("PACKET"):
 			self.after_transition=  str(event.before_state) + " -> " + str(event.after_state)
 			self.end_time = event.time
@@ -295,24 +300,21 @@ class Transition():
 				# TODO update
 				self.duplicates_first[subtype] = count
 				self.attributes_first[subtype] = event.secondary_attributes
-			event.printme()
+			else:
+				self.duplicates_all[subtype] = 0
+				self.attributes_all[subtype] = {}
+					
+#			event.printme()
 #			print "Finalizing!", self.end_time, event.time
 			self.time_to_reach_last[subtype] = self.end_time - event.time
 			self.duplicates_last[subtype] = count
 			self.attributes_last[subtype] = event.secondary_attributes
-
-
-	def __merge_attributes(self, new_attributes, attribute_dict, event):
-		for k, v in new_attributes.iteritems():
-			if k not in attribute_dict[event]:
-				attribute_dict[event][k] = []
-			try:
-				v = int(v)
-			except:
-				pass
-			attribute_dict[event][k].append(v)
+			self.duplicates_all[subtype] += count
+			robustnetLib.mergeDict(event.secondary_attributes, self.attributes_all, subtype)
 
 	def __print_attributes(self, attribute_dict, event):
+		if len(attribute_dict[event]) > 0:
+			print "\t\t   ATTRIBUTES:"
 		for k, v in attribute_dict[event].iteritems():
 			print "\t\t\t", k, "|",
 			if len(v) > 0 and isinstance(v[0], int):
@@ -323,15 +325,19 @@ class Transition():
 					continue
 				except:
 					pass
-			
 			counter = Counter(v).most_common(3)
 			for items in counter:
 				print items[0], ":", items[1], "|",
 			print
 			
+	def fraction_there(self, l):
+		if l == None or len(l) == 0:
+			return 0
+		new_l = [1 if x >= 1 else 0 for x in l]
+		return robustnetLib.meanValue(new_l)	
 			
 
-	def merge_dicts(self, l, name, transition_file):
+	def merge_dicts_and_print(self, l, name, transition_file):
 		DEVELOP = False
 		if DEVELOP:
 			result = []
@@ -347,9 +353,9 @@ class Transition():
 		
 			for item in result:
 				sorted_result = sorted(item.iteritems(), key=operator.itemgetter(1), reverse=True)
-				for k, v in sorted_result:
-					print k + ":", v,
-				print
+#				for k, v in sorted_result:
+#					print k + ":", v,
+#				print
 		time_to_reach_first = self.__create_dict(True)
 		duplicates_first = self.__create_dict(True)
 		attributes_first = self.__create_dict(False, d=True)
@@ -357,8 +363,12 @@ class Transition():
 		time_to_reach_last= self.__create_dict(True)
 		duplicates_last = self.__create_dict(True)
 		attributes_last = self.__create_dict(False, d=True)
+
+		duplicates_all = self.__create_dict(True)
+		attributes_all = self.__create_dict(False, d=True)
+
 		inter_time = []
-	
+
 		for item in l:
 			for k, v in item.time_to_reach_first.iteritems():
 				time_to_reach_first[k].append(v)
@@ -368,15 +378,19 @@ class Transition():
 				time_to_reach_last[k].append(v)
 			for k, v in item.duplicates_last.iteritems():
 				duplicates_last[k].append(v)
+			for k, v in item.duplicates_all.iteritems():
+				duplicates_all[k].append(v)
 			for k, v in item.attributes_first.iteritems():
-				self.__merge_attributes(v, attributes_first, k)
+				robustnetLib.mergeDict(v, attributes_first, k)
 			for k, v in item.attributes_last.iteritems():
-				self.__merge_attributes(v, attributes_last, k)
+				robustnetLib.mergeDict(v, attributes_last, k)
+			for k, v in item.attributes_all.iteritems():
+				robustnetLib.mergeDict(v, attributes_all, k, True)
 			if item.end_time != 0:
 				inter_time.append(item.end_time - item.begin_time)
-			
-		print >>transition_file, name
-		print >>transition_file, robustnetLib.listToStr(inter_time, DEL = "\n")
+		if transition_file:	
+			print >>transition_file, name
+			print >>transition_file, robustnetLib.listToStr(inter_time, DEL = "\n")
 		print name
 		print "average:", robustnetLib.meanValue(inter_time), "stdev:", robustnetLib.stdevValue(inter_time)
 		print "min-ish:", robustnetLib.quartileResult(inter_time)[0]
@@ -384,9 +398,24 @@ class Transition():
 		for k in time_to_reach_first.keys():
 			if max(duplicates_first[k]) == 0 and max(duplicates_last[k]) == 0:
 				continue
-			print "\t", k, robustnetLib.meanValue(time_to_reach_first[k]), robustnetLib.meanValue(duplicates_first[k]), min(duplicates_first[k]), len(duplicates_first[k])
+			print "\t", k 
+			print "\t\tBEGIN: "
+                        print "\t\t   time from start:", robustnetLib.meanValue(time_to_reach_first[k])
+			print "\t\t   frequency appears: ", self.fraction_there(duplicates_first[k])
+			print "\t\t   duplicates:", robustnetLib.meanValue(duplicates_first[k])
+			print "\t\t   min appearances:", min(duplicates_first[k])
+			print "\t\t   number of tests:", len(duplicates_first[k])
 			self.__print_attributes(attributes_first, k)
-			print "\t\t", robustnetLib.meanValue(time_to_reach_last[k]), robustnetLib.meanValue(duplicates_last[k]), min(duplicates_last[k])
+			print "\t\tALL: "
+			print "\t\t    frequency appears:", self.fraction_there(duplicates_all[k])
+			print "\t\t    duplicates:", robustnetLib.meanValue(duplicates_all[k])
+			self.__print_attributes(attributes_all, k)
+			print "\t\tEND: "
+			print "\t\t   time from end:", robustnetLib.meanValue(time_to_reach_last[k])
+			print "\t\t   frequency appears:", self.fraction_there(duplicates_last[k])
+			print "\t\t   duplicates:", robustnetLib.meanValue(duplicates_last[k]) 
+			print "\t\t   min appearances:", min(duplicates_last[k])
+			
 			self.__print_attributes(attributes_last, k)
 
 f = open(sys.argv[1])
@@ -447,7 +476,7 @@ for k in all_keys:
 		else:
 			event.after_state = last_after_state
 
-		event.printme()
+		#event.printme()
 		sorted_events.append(event)
 		actual_time = 0
 
@@ -475,6 +504,7 @@ for event in sorted_events:
 		transition = Transition(event.after_state, event.time)
 
 for k, v in transition_dict.iteritems():
-	v[0].merge_dicts(v, k, transition_file)
+	if "None" not in k:
+		v[0].merge_dicts_and_print(v, k, transition_file)
 
 
