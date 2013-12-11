@@ -16,7 +16,8 @@ def mergeDict(new_attributes, attribute_dict, event, are_lists=False):
 
 def meanValue(li):
     """author: Haokun """
-    if not li:
+    li = [x for x in li if x != None]
+    if not li or len(li) == 0:
         return 0.0
     return sum(li)*1.0/len(li)
 
@@ -31,6 +32,7 @@ def listMeanValue(li):
 #   [5%, 25%, 50%, 75%, 95%]
 def quartileResult(li):
     """author: Haokun """
+    li = [x for x in li if x != None]
     if not li:
         return [0]*5
     listLen = len(li)
@@ -41,6 +43,7 @@ def quartileResult(li):
 # calculate the standard deviation of the list
 def stdevValue(li, mean = None):
     """author: Haokun """
+    li = [x for x in li if x != None]
     if not li:
         return 0.0
 

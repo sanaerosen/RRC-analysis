@@ -300,7 +300,7 @@ class Transition():
 #["radio_reconfig", "radio_reconfig_complete", "rlc_config", "cell_update", "update_confirm"]
 
 
-	def __create_dict(self, lists, d = False):
+	def __create_dict(self, lists, d = False, item = 0):
 		retval = {}
 		for v in Event.distinct_events:
 			if lists:
@@ -308,7 +308,7 @@ class Transition():
 			elif d:
 				retval[v] = {}
 			else:
-				retval[v] = 0
+				retval[v] = item
 		return retval 
 
 	def __init__(self, state, time):
@@ -319,8 +319,8 @@ class Transition():
 		self.after_transition = None
 		self.between = []
 #		self.time_to_reach_first = { "radio_reconfig":0, "radio_reconfig_complete":0, "rlc_config":0, "phy_reconfig":0, "phy_reconfig_complete":0}
-		self.time_to_reach_first = self.__create_dict(False)
-		self.time_to_reach_last = self.__create_dict(False)
+		self.time_to_reach_first = self.__create_dict(False, item=None)
+		self.time_to_reach_last = self.__create_dict(False, item=None)
 		self.attributes_first = self.__create_dict(False, d=True)
 		self.attributes_last = self.__create_dict(False, d=True)
 		self.attributes_all = self.__create_dict(False, d=True)
@@ -361,7 +361,7 @@ class Transition():
 			subtype = item[0]
 			count = item[1]
 			event = item[2]
-			if subtype in self.time_to_reach_first and self.time_to_reach_first[subtype] == 0:
+			if subtype in self.time_to_reach_first and self.time_to_reach_first[subtype] == None:
 				self.time_to_reach_first[subtype] = event.time - self.begin_time
 				# TODO update
 				self.duplicates_first[subtype] = count
@@ -401,7 +401,6 @@ class Transition():
 		return robustnetLib.meanValue(new_l)	
 			
 	def find_correlation(self, name, f_root):
-
 		f = None
 		if "camped -> connecting connecting -> connected" in name.lower():
 			occasionals = ["EVENT_LTE_EMM_INCOMING_MSG", "EVENT_LTE_EMM_TIMER_EXPIRY", "EVENT_LTE_RACH_ACCESS_START", "EVENT_LTE_EMM_TIMER_START"]
@@ -419,11 +418,27 @@ class Transition():
 		elif "CELL_PCH -> CELL_FACH CELL_FACH -> CELL_DCH" in name:
 			transition_type = "fach_promote"
 			occasionals = ["CELL_UPDATE_MSG", "MEASUREMENT_REPORT_MSG"]
-			time_matters = [("SYSTEM_INFORMATION_MSG", "RADIO_BEARER_RECONFIGURATION_MSG"), ("RADIO_BEARER_RECONFIGURATION_MSG", "RADIO_BEARER_RECONFIGURATION_COMPLETE_MSG")]
+			time_matters = [("-begin-", "RADIO_BEARER_RECONFIGURATION_MSG"), ("RADIO_BEARER_RECONFIGURATION_MSG", "RADIO_BEARER_RECONFIGURATION_COMPLETE_MSG"), ("-begin-", "CELL_UPDATE_CONFIRM_MSG"), ("RADIO_BEARER_RECONFIGURATION_COMPLETE_MSG", "-end-")]
 		elif "CELL_DCH -> CELL_FACH CELL_FACH -> CELL_DCH" in name:
 			transition_type = "fach_temp"
 			occasionals = []
-			time_matters = []
+			time_matters = [("-begin-", "EVENT_WCDMA_RLC_CONFIG"), ("EVENT_WCDMA_RLC_CONFIG", "EVENT_WCDMA_RLC_CONFIG"), ("EVENT_WCDMA_RLC_CONFIG", "-end-"), ("RADIO_BEARER_RECONFIGURATION_MSG", "-end-"), ("RADIO_BEARER_RECONFIGURATION_MSG", "RADIO_BEARER_RECONFIGURATION_COMPLETE_MSG")]
+		elif "CELL_DCH -> CELL_FACH CELL_FACH -> CELL_PCH" in name:
+			transition_type  = "fach_demote"
+			occasionals = []
+			time_matters = [("-begin-", "RADIO_BEARER_RECONFIGURATION_COMPLETE_MSG"), ("PHYSICAL_CHANNEL_RECONFIGURATION_MSG", "-end-"), ("-begin-", "EVENT_WCDMA_RLC_CONFIG"), ("PHYSICAL_CHANNEL_RECONFIGURATION_MSG", "PHYSICAL_CHANNEL_RECONFIGURATION_COMPLETE_MSG"), ("PHYSICAL_CHANNEL_RECONFIGURATION_COMPLETE_MSG", "-end-")]
+		elif "Disconnected -> Connecting Connecting -> CELL_DCH" in name:
+			transition_type = "hspdap_connecting"
+			occasionals = ["PACKET_RCV", "RRC_CONNECTION_REJECT_MSG", "RRC_CONNECTION_REQUEST_MSG"]
+			time_matters = [("-begin-", "EVENT_WCDMA_PRACH"), ("-begin-", "RRC_CONNECTION_REQUEST_MSG"), ("-begin-", "EVENT_WCDMA_L1_STATE"), ("RRC_CONNECTION_REQUEST_MSG", "-end-"), ("EVENT_WCDMA_RRC_URNTI", "-end-"), ("RRC_CONNECTION_SETUP_MSG", "RRC_CONNECTION_SETUP_COMPLETE_MSG"), ("EVENT_WCDMA_L1_STATE", "EVENT_WCDMA_RRC_URNTI"), ("-begin-", "EVENT_WCDMA_ASET"), ("EVENT_WCDMA_ASET", "-end-"), ("EVENT_WCDMA_RRC_URNTI","EVENT_WCDMA_ASET")]
+		elif "CELL_DCH -> Disconnected Disconnected -> Connecting" in name:
+			transition_type = "hspdap_disconnected"
+			occasionals = ["PAGING_TYPE_1_MSG", "EVENT_WCDMA_RRCCSP_SCAN_START", "PACKET_RCV", "EVENT_LTE_EMM_TIMER_EXPIRY"]
+			time_matters = [("EVENT_GMM_STATE", "-end-"), ("EVENT_WCDMA_CONN_REQ_CAUSE", "-end-"), ("-begin-", "EVENT_WCDMA_L1_ACQ_SUBSTATE"), ("-begin-", "EVENT_WCDMA_RRCCSP_SCAN_START"), ("EVENT_WCDMA_RRCCSP_SCAN_START", "EVENT_WCDMA_L1_STATE"), ("EVENT_WCDMA_L1_STATE", "EVENT_WCDMA_L1_ACQ_SUBSTATE"), ("EVENT_WCDMA_L1_ACQ_SUBSTATE", "EVENT_WCDMA_L1_STATE"), ("EVENT_WCDMA_L1_ACQ_SUBSTATE", "EVENT_WCDMA_L1_ACQ_SUBSTATE"), ("EVENT_WCDMA_CONN_REL_CAUSE", "EVENT_WCDMA_L1_ACQ_SUBSTATE"), ("EVENT_PLMN_INFORMATION", "EVENT_WCDMA_L1_ACQ_SUBSTATE"), ("-begin-", "EVENT_WCDMA_L1_STATE"), ("-begin-", "EVENT_MM_STATE"), ("-begin-", "EVENT_WCDMA_CONN_REL_CAUSE"), ("-begin-", "EVENT_PLMN_INFORMATION"), ("RRC_CONNECTION_REQUEST_MSG", "-end"), ("EVENT_WCDMA_CONN_REQ_CAUSE", "RRC_CONNECTION_REQUEST_MSG"), ("EVENT_GMM_STATE", "RRC_CONNECTION_REQUEST_MSG")]
+		elif "Connecting -> CELL_DCH CELL_DCH -> Disconnected" in name:
+			transition_type = "hspdap_dch"
+			occasionals = ["DOWNLINK_DIRECT_TRANSFER_MSG", "UPLINK_DIRECT_TRANSFER_MSG"]
+			time_matters = [("-begin-", "EVENT_CM_CELL_SRV_IND"), ("-begin-", "INITIAL_DIRECT_TRANSFER_MSG"), ("-begin-", "EVENT_CM_COUNTRY_SELECTED"), ("-begin-", "EVENT_NAS_MESSAGE_SENT"), ("-begin-", "EVENT_LTE_EMM_TIMER_START"), ("-begin-", "ACTIVE_SET_UPDATE_MSG"), ("-begin-", "ACTIVE_SET_UPDATE_COMPLETE_MSG"), ("-begin-", "SECURITY_MODE_COMMAND_MSG"), ("-begin-", "EVENT_WCDMA_ASET"), ("-begin-", "SECURITY_MODE_COMPLETE_MSG"), ("-begin-", "EVENT_GMM_STATE"), ("-begin-", "EVENT_NAS_MESSAGE_RECEIVED"), ("SIGNALLING_CONNECTION_RELEASE_INDICATION_MSG", "-end-"), ("EVENT_IPV6_SM_EVENT", "-end-"), ("RRC_CONNECTION_RELEASE_COMPLETE_MSG", "-end-"), ("EVENT_EUL_RECONFIG_OR_ASU", "-end-"), ("EVENT_HS_DSCH_STATUS", "-end-"), ("EVENT_WCDMA_L1_STATE", "-end-"), ("SECURITY_MODE_COMMAND_MSG", "SECURITY_MODE_COMPLETE_MSG"), ("EVENT_NAS_MESSAGE_SENT", "EVENT_NAS_MESSAGE_RECEIVED"), ("ACTIVE_SET_UPDATE_MSG", "ACTIVE_SET_UPDATE_COMPLETE_MSG")]
 		else:
 			return 
 
@@ -448,16 +463,26 @@ class Transition():
 		for t_pair in time_matters:
 			start = t_pair[0]
 			end = t_pair[1]
-					
-			if start in self.time_to_reach_first and end in self.time_to_reach_first:
+			
+			if start == end and start in self.time_to_reach_first and self.time_to_reach_first[start] != None and end in self.time_to_reach_last and self.time_to_reach_last[end] != None:
+				print >>f, (inter_time - self.time_to_reach_last[end]) - self.time_to_reach_first[start],
+						
+			elif start in self.time_to_reach_first and end in self.time_to_reach_first and self.time_to_reach_first[start] != None and self.time_to_reach_first[end] != None:
 				print >>f, self.time_to_reach_first[end] - self.time_to_reach_first[start], 
+			elif start == "-begin-" and end in self.time_to_reach_first and self.time_to_reach_first[end] != None:
+				print >>f, self.time_to_reach_first[end],
+			elif end == "-end-" and start in self.time_to_reach_last and self.time_to_reach_last[start] != None:
+#				print >>f, inter_time - self.time_to_reach_last[start],
+				print >>f, self.time_to_reach_last[start],
+			else:
+				print >>f, -1,
 
 		if transition_type == "closing":
-			if "EVENT_LTE_MAC_TIMER" in self.time_to_reach_first:
+			if "EVENT_LTE_MAC_TIMER" in self.time_to_reach_first and self.time_to_reach_first["EVENT_LTE_MAC_TIMER"] != None:
 				print >>f, self.time_to_reach_first["EVENT_LTE_MAC_TIMER"] - self.time_to_reach_last["EVENT_LTE_MAC_TIMER"],
-			if "EVENT_LTE_RRC_TIMER_STATUS" in self.time_to_reach_first:
+			if "EVENT_LTE_RRC_TIMER_STATUS" in self.time_to_reach_first and self.time_to_reach_first["EVENT_LTE_RRC_TIMER_STATUS"] != None:
 				print >>f, self.time_to_reach_first["EVENT_LTE_RRC_TIMER_STATUS"] - self.time_to_reach_last["EVENT_LTE_RRC_TIMER_STATUS"],
-			if "EVENT_LTE_MAC_TIMER" in self.attributes_first:
+			if "EVENT_LTE_MAC_TIMER" in self.attributes_first and self.attributes_first["EVENT_LTE_MAC_TIMER"] != None:
 				if "Start" in self.attributes_first["EVENT_LTE_MAC_TIMER"]:
 					print >>f, "1",
 				else:
@@ -491,11 +516,11 @@ class Transition():
 #				for k, v in sorted_result:
 #					print k + ":", v,
 #				print
-		time_to_reach_first = self.__create_dict(True)
+		time_to_reach_first = self.__create_dict(True, item=None)
 		duplicates_first = self.__create_dict(True)
 		attributes_first = self.__create_dict(False, d=True)
 		
-		time_to_reach_last= self.__create_dict(True)
+		time_to_reach_last= self.__create_dict(True, item=None)
 		duplicates_last = self.__create_dict(True)
 		attributes_last = self.__create_dict(False, d=True)
 
@@ -641,7 +666,7 @@ for event in sorted_events:
 		transition = Transition(event.after_state, event.time)
 
 if transition_file:
-	for suffix in ["connecting", "closing", "idle_nc"]:
+	for suffix in ["connecting", "closing", "idle_nc", "fach_demote", "fach_promote", "fach_temp", "hspdap_dch", "hspdap_disconnected", "hspdap_connecting"]:
 		if os.path.isfile(sys.argv[3] + "_" + suffix + ".txt"):
 			os.remove(sys.argv[3] + "_" + suffix + ".txt")	
 
@@ -649,7 +674,6 @@ for k, v in transition_dict.iteritems():
 
 	if "None" not in k:
 		v[0].merge_dicts_and_print(v, k, transition_file)
-
 	if transition_file:
 		for item in v:
 			item.find_correlation(k, sys.argv[3])
